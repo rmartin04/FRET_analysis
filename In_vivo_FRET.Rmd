@@ -39,21 +39,15 @@ process_fluorescence <- function(x) {
     select(Time, Fluorescence_adj)
 }
 
-gather_fluorescence <- function(n, x, y) {
-  gather(n, Time, Fluorescence, x:y) %>%
-    group_by(Time) %>%
-    summarise(Fluorescence = mean(Fluorescence))
-}
-
-summarise_fluorescence <- function(n, x, y, z) {
-  gather(n, Time, Fluorescence, x:y) %>%
+gather_fluorescence <- function(n, z) {
+  gather(n, Time, Fluorescence, 2:ncol(n)) %>%
     mutate(Time = as.numeric(factor(Time)) * z) %>%
     group_by(Time) %>%
-    summarise(Fluorescence = mean(Fluorescence))  
+    summarise(Fluorescence = mean(Fluorescence)) 
 }
 
 ## Set working directory
-setwd("~/Desktop/Practice_R/Jace_Projects/Ryan_Data2/2019-03-08")
+setwd("~/directory")
 
 ##List of files in directory
 files <- list.files(pattern = "*.xls", full.names = T)
@@ -67,11 +61,8 @@ names(YFP) <- gsub(".*/(.*)\\..*", "\\1", files)
 
 ## Average  CFP readings from control animals and do linear regression
 ## Adjust 8 and 9 for locations of control animals in list
-control_cfp <- lapply(CFP[c(11:12, 23:24)] , gather_fluorescence, x = "Event001", "Event020") %>%
+control_cfp <- lapply(CFP[10] , gather_fluorescence, z = 2) %>%
   reduce(left_join, by = "Time") %>%
-  
-  ## Adjust "* 2" for frequency of readings taken, here it is for every 2 minutes
-  mutate(Time = as.numeric(factor(Time)) * 1) %>%
   transmute(Time, Mean = rowMeans(select(., -Time))) %>%
   select(Time, Mean)
 
@@ -86,11 +77,8 @@ background_CFP <- select(control_cfp, Time) %>%
 ## Average  CFP readings from control animals and do linear regression
 ## Adjust 8 and 9 for locations of control animals in list
 
-control_yfp <- lapply(YFP[c(11:12, 23:24)], gather_fluorescence, x = "Event001", "Event020") %>%
+control_yfp <- lapply(YFP[10], gather_fluorescence, z = 2) %>%
   reduce(left_join, by = "Time") %>%
-
-  ## Adjust "* 2" for frequency of readings taken, here it is for every 2 minutes
-  mutate(Time = as.numeric(factor(Time)) * 1) %>%
   transmute(Time, Mean = rowMeans(select(., -Time))) %>%
   select(Time, Mean)
 
@@ -105,14 +93,14 @@ background_YFP <- select(control_yfp, Time) %>%
 ## Extract datasets of treated animals in the list and name them
 ## Adjust [ ] for locations of tested animals in list
 ## Adjust z for frequency of readings taken
-CFP_treat <- lapply(CFP[c(1:10, 13:22)], summarise_fluorescence, x = "Event001", y = "Event020", z = 1)
+CFP_treat <- lapply(CFP[1:9], gather_fluorescence, z = 2)
 CFP_treat <- lapply(CFP_treat, function(x) 
                         left_join(x, background_CFP, by = "Time"))
 
 CFP_adj <- lapply(CFP_treat, process_fluorescence)
 
 
-YFP_treat <- lapply(YFP[c(1:10, 13:22)], summarise_fluorescence, x = "Event001", y = "Event020", z = 1)
+YFP_treat <- lapply(YFP[1:9], gather_fluorescence, z = 2)
 YFP_treat <- lapply(YFP_treat, function(x) 
                         left_join(x, background_YFP, by = "Time"))
 
