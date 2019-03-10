@@ -1,0 +1,157 @@
+---
+title: "In_vivo_FRET"
+author: "Ryan Martin"
+output: html_document
+---
+
+## Required libraries 
+## MUST BE LOADED IN THIS ORDER
+library(plyr)
+library(tidyverse)
+library(readxl)
+library(grid)
+library(gridExtra)
+
+## Functions required, some adjustments are required depending on specifics of the recording session
+dfret <- function(x) {
+  x %>%
+    mutate(dfret = fret - baseline,
+           df_fret = dfret / fret * 100) %>%
+    select(Time, dfret, df_fret)
+}
+
+fret <- function(x) {
+  x %>% 
+    mutate(fret = Fluorescence_adj.y / Fluorescence_adj.x) %>%
+    select(Time, fret)
+}
+
+## Adjust Time filtered for length of baseline reading
+baseline_fret <- function(x) {
+  x %>% 
+    mutate(fret = Fluorescence_adj.y / Fluorescence_adj.x) %>%
+    filter(Time <= 10) %>%
+    summarise(baseline = mean(fret))
+}
+
+process_fluorescence <- function(x) {
+  baseline <- mutate(x, Fluorescence_adj = Fluorescence - value) %>%
+    select(Time, Fluorescence_adj)
+}
+
+gather_fluorescence <- function(n, x, y) {
+  gather(n, Time, Fluorescence, x:y) %>%
+    group_by(Time) %>%
+    summarise(Fluorescence = mean(Fluorescence))
+}
+
+summarise_fluorescence <- function(n, x, y, z) {
+  gather(n, Time, Fluorescence, x:y) %>%
+    mutate(Time = as.numeric(factor(Time)) * z) %>%
+    group_by(Time) %>%
+    summarise(Fluorescence = mean(Fluorescence))  
+}
+
+## Set working directory
+setwd("~/Desktop/Practice_R/Jace_Projects/Ryan_Data2/2019-03-08")
+
+##List of files in directory
+files <- list.files(pattern = "*.xls", full.names = T)
+
+##Import CFP and YFP channel readings and name elements of list
+CFP <- lapply(files, read_xls, sheet = 4)
+names(CFP) <- gsub(".*/(.*)\\..*", "\\1", files)
+
+YFP <- lapply(files, read_xls, sheet = 5)
+names(YFP) <- gsub(".*/(.*)\\..*", "\\1", files)
+
+## Average  CFP readings from control animals and do linear regression
+## Adjust 8 and 9 for locations of control animals in list
+control_cfp <- lapply(CFP[c(11:12, 23:24)] , gather_fluorescence, x = "Event001", "Event020") %>%
+  reduce(left_join, by = "Time") %>%
+  
+  ## Adjust "* 2" for frequency of readings taken, here it is for every 2 minutes
+  mutate(Time = as.numeric(factor(Time)) * 1) %>%
+  transmute(Time, Mean = rowMeans(select(., -Time))) %>%
+  select(Time, Mean)
+
+linear_CFP <- lm(Mean ~ Time, data = control_cfp)
+
+background_CFP <- select(control_cfp, Time) %>%
+  predict(linear_CFP, .) %>%
+  as_tibble(.) %>%
+  bind_cols(control_cfp, .) %>%
+  select(Time, value)
+
+## Average  CFP readings from control animals and do linear regression
+## Adjust 8 and 9 for locations of control animals in list
+
+control_yfp <- lapply(YFP[c(11:12, 23:24)], gather_fluorescence, x = "Event001", "Event020") %>%
+  reduce(left_join, by = "Time") %>%
+
+  ## Adjust "* 2" for frequency of readings taken, here it is for every 2 minutes
+  mutate(Time = as.numeric(factor(Time)) * 1) %>%
+  transmute(Time, Mean = rowMeans(select(., -Time))) %>%
+  select(Time, Mean)
+
+linear_YFP <- lm(Mean ~ Time, data = control_yfp)
+
+background_YFP <- select(control_yfp, Time) %>%
+  predict(linear_YFP, .) %>%
+  as_tibble(.) %>%
+  bind_cols(control_yfp, .) %>%
+  select(Time, value)
+
+## Extract datasets of treated animals in the list and name them
+## Adjust [ ] for locations of tested animals in list
+## Adjust z for frequency of readings taken
+CFP_treat <- lapply(CFP[c(1:10, 13:22)], summarise_fluorescence, x = "Event001", y = "Event020", z = 1)
+CFP_treat <- lapply(CFP_treat, function(x) 
+                        left_join(x, background_CFP, by = "Time"))
+
+CFP_adj <- lapply(CFP_treat, process_fluorescence)
+
+
+YFP_treat <- lapply(YFP[c(1:10, 13:22)], summarise_fluorescence, x = "Event001", y = "Event020", z = 1)
+YFP_treat <- lapply(YFP_treat, function(x) 
+                        left_join(x, background_YFP, by = "Time"))
+
+YFP_adj <- lapply(YFP_treat, process_fluorescence)
+
+## Merge YFP and CFP channels for each animal
+merged_fluorescence <- list()
+
+for(i in 1:length(CFP_adj)) {
+  a <- CFP_adj[i][[1]]
+  b <- YFP_adj[i][[1]]
+  merged_fluorescence[i][[1]] <- left_join(a, b, by = "Time")
+}
+
+## Obtain baseline fluorescence for each animal, adjust baseline_fret function for time of baseline reading
+names(merged_fluorescence) <- names(CFP_adj)
+
+baseline_fret <- lapply(merged_fluorescence, baseline_fret)
+
+## Obtain FRET ratios for each animal
+fret_ratio <- lapply(merged_fluorescence, fret)
+
+## Merge FRET ratios with the baseline FRET for each animal
+delta_fret <- list()
+
+for(i in 1:length(fret_ratio)) {
+  a <- fret_ratio[i][[1]]
+  b <- baseline_fret[i][[1]]
+  delta_fret[i][[1]] <- cbind(a, b)
+}
+
+## Calculate dFRET and %dFRET/FRET
+fret_final <- lapply(delta_fret, dfret)
+names(fret_final) <- names(CFP_adj)
+
+## Collapse list into a matrix maintaining which data.frame in the list the values came from
+fret_matrix <- ldply(fret_final)
+
+## Quick plot of all the animals in the current directory
+ggplot(fret_matrix, aes(x = Time, y = df_fret, color = .id)) + 
+  geom_line() 
+
