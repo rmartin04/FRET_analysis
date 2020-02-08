@@ -1,40 +1,30 @@
+---
+title: "In_vivo_FRET"
+author: "Ryan Martin"
+---
+
 ## Required libraries 
 library(tidyverse)
 library(modelr)
 library(readxl)
 library(here)
 
-<<<<<<< HEAD
-=======
-## Set working directory
-setwd("~/directory")
-
->>>>>>> 5b9be77cc14a73a0f350b51278c0da427d958ee9
 ## Set recording interval time
 interval_time <- 2
 
 ## Set length of baseline reading
 baseline_time <- 10
 
-## List of files in directory
-<<<<<<< HEAD
+##List of files in directory
 files <- list.files(path = here(), pattern = "*.xls", full.names = T, recursive = T)
-
-## Import CFP and YFP channel readings and name elements of list
-CFP <- lapply(files, read_xls, sheet = 4)
-names(CFP) <- gsub(".*/(.*)\\..*", "\\1", files)
-=======
-files <- list.files(pattern = "*.xls", full.names = T, recursive = T)
-
-## Import CFP and YFP channel readings and name elements of list
-all_cfp <- map(files, read_xls, sheet = 4)
+##Import CFP and YFP channel readings and name elements of list
+all_cfp <- lapply(files, read_xls, sheet = 4)
 names(all_cfp) <- gsub(".*/(.*)\\..*", "\\1", files)
->>>>>>> 5b9be77cc14a73a0f350b51278c0da427d958ee9
 
-YFP <- lapply(files, read_xls, sheet = 5)
-names(YFP) <- gsub(".*/(.*)\\..*", "\\1", files)
+all_yfp <- lapply(files, read_xls, sheet = 5)
+names(all_yfp) <- gsub(".*/(.*)\\..*", "\\1", files)
 
-## Calculate CFP and YFP mean fluorescence at each time point for the control animals 
+## Calculate CFP and YFP mean fluorescence at each time point for the control files 
 gather_fluorescence <- function(n, z) {
   n %>%
     pivot_longer(cols = 2:ncol(n), names_to = 'Event', values_to = 'Fluorescence') %>%
@@ -42,50 +32,38 @@ gather_fluorescence <- function(n, z) {
     summarise(Fluorescence = mean(Fluorescence)) 
 }
 
-<<<<<<< HEAD
-=======
-## Calculate CFP and YFP mean fluorescence at each time point for the control files 
->>>>>>> 5b9be77cc14a73a0f350b51278c0da427d958ee9
 control_cfp <- map(all_cfp[grep("Control", files)], gather_fluorescence) 
 control_yfp <- map(all_yfp[grep("Control", files)], gather_fluorescence)
 
-## Calculate CFP readings from control animals
+##Calculate CFP readings from control animals and do linear regression
 control_cfp_linear <- control_cfp %>%
   reduce(left_join, by = "Time") %>%
   pivot_longer(2:ncol(.), names_to = 'Fluorescence', values_to = 'value') %>%
   mutate(Time = as.numeric(factor(Time)) * interval_time)
 
-## Linear regression of CFP values vs time
 linear_cfp <- lm(value ~ Time, data = control_cfp_linear)
 
-## Predict CFP values from linear regression formula
 background_cfp <- select(control_cfp_linear, Time) %>%
   distinct() %>%
   add_predictions(linear_cfp)
 
-## Average YFP readings from control animals
+## Average YFP readings from control animals and do linear regression
 control_yfp_linear <- control_yfp %>%
   reduce(left_join, by = "Time") %>%
   pivot_longer(2:ncol(.), names_to = 'Fluorescence', values_to = 'value') %>%
   mutate(Time = as.numeric(factor(Time)) * interval_time)
 
-## Linear regression of YFP values vs time
 linear_yfp <- lm(value ~ Time, data = control_yfp_linear)
 
-## Predict YFP values from linear regression formula
 background_yfp <- select(control_yfp_linear, Time) %>%
   distinct() %>%
   add_predictions(linear_yfp)
 
-## Extract datasets of treated animals in the list
+## Extract datasets of treated animals in the list and name them
 treat_cfp <- map(all_cfp[grep("Control", files, invert = T)], gather_fluorescence)
 treat_yfp <- map(all_yfp[grep("Control", files, invert = T)], gather_fluorescence)
 
-<<<<<<< HEAD
-## Adjust CFP and YFP by substracting off predicted values from control linear regression
-=======
 ## Adjust CFP and YFP but substracting off predicted values from control linear regression
->>>>>>> 5b9be77cc14a73a0f350b51278c0da427d958ee9
 adj_cfp <- map(treat_cfp, function(x) {
   x %>% 
     mutate(Time = as.numeric(factor(Time)) * interval_time) %>%
@@ -102,13 +80,8 @@ adj_yfp <- map(treat_yfp, function(x) {
     select(Time, fluorescence_adj)
 })
 
-<<<<<<< HEAD
 ## Merge YFP and CFP channels for each animal
 merged_fluorescence <- list()
-=======
-## Merge CFP and YFP channels into one matrix
-merged_adj <- list()
->>>>>>> 5b9be77cc14a73a0f350b51278c0da427d958ee9
 
 for(i in 1:length(adj_cfp)) {
   a <- adj_cfp[i][[1]]
@@ -149,30 +122,8 @@ dfret <- function(x) {
     select(Time, dfret, df_fret)
 }
 
-<<<<<<< HEAD
 fret_final <- lapply(delta_fret, dfret)
 names(fret_final) <- names(adj_cfp)
-=======
-treat_fret <- map(treat_delta_fret, dfret)
-predict_fret <- map(predict_delta_fret, dfret)
-
-## Combine predicted and treatment values
-treat_predict_list <- list()
-
-for(i in 1:length(treat_fret)) {
-  treat <- treat_fret[i][[1]]
-  predicted <- predict_fret[i][[1]]
-  treat_predict_list[i][[1]] <- left_join(treat, predicted, by = "Time")
-}
-
-names(treat_predict_list) <- names(all_cfp[grep("Control", files, invert = T)])
-
-treat_predict_adj <- map_dfr(treat_predict_list, .id = "names", function(x) {
-  mutate(x, dfret = dfret.x - dfret.y, 
-            df_fret = df_fret.x - df_fret.y) %>%
-  select(Time, dfret, df_fret)
-})
->>>>>>> 5b9be77cc14a73a0f350b51278c0da427d958ee9
 
 ## Collapse list into a matrix maintaining which dataset the values came from
 fret_matrix <- plyr::ldply(fret_final, .id = 'names')
@@ -180,4 +131,5 @@ fret_matrix <- plyr::ldply(fret_final, .id = 'names')
 ## Quick plot of all the animals in the current directory
 ggplot(fret_matrix, aes(x = Time, y = df_fret, color = names)) + 
   geom_line() 
+
 
