@@ -12,16 +12,16 @@ library(readxl)
 ## Set working directory
 setwd("~/directory")
 
-##Set recording interval time
+## Set recording interval time
 interval_time <- 2
 
-##Set length of baseline reading
+## Set length of baseline reading
 baseline_time <- 10
 
-##List of files in directory
+## List of files in directory
 files <- list.files(pattern = "*.xls", full.names = T, recursive = T)
 
-##Import CFP and YFP channel readings and name elements of list
+## Import CFP and YFP channel readings and name elements of list
 all_cfp <- map(files, read_xls, sheet = 4)
 names(all_cfp) <- gsub(".*/(.*)\\..*", "\\1", files)
 
@@ -35,7 +35,7 @@ gather_fluorescence <- function(n, z) {
     summarise(Fluorescence = mean(Fluorescence)) 
 }
 
-##Calculate CFP and YFP mean fluorescence at each time point for the control files 
+## Calculate CFP and YFP mean fluorescence at each time point for the control files 
 control_cfp <- map(all_cfp[grep("Control", files)], gather_fluorescence) 
 control_yfp <- map(all_yfp[grep("Control", files)], gather_fluorescence)
 
@@ -70,7 +70,7 @@ background_yfp <- select(control_yfp_linear, Time) %>%
 treat_cfp <- map(all_cfp[grep("Control", files, invert = T)], gather_fluorescence)
 treat_yfp <- map(all_yfp[grep("Control", files, invert = T)], gather_fluorescence)
 
-##Adjust CFP and YFP but substracting off predicted values from control linear regression
+## Adjust CFP and YFP but substracting off predicted values from control linear regression
 adj_cfp <- map(treat_cfp, function(x) {
     mutate(x, Time = as.numeric(factor(Time)) * interval_time) %>%
     left_join(background_cfp, by = "Time")  %>%
@@ -85,7 +85,7 @@ adj_yfp <- map(treat_yfp, function(x) {
     select(Time, fluorescence_adj)
 })
 
-##Merge CFP and YFP channels into one matrix
+## Merge CFP and YFP channels into one matrix
 merged_adj <- list()
 
 for(i in 1:length(adj_cfp)) {
@@ -157,7 +157,7 @@ dfret <- function(x) {
 treat_fret <- map(treat_delta_fret, dfret)
 predict_fret <- map(predict_delta_fret, dfret)
 
-##Combine predicted and treatment values
+## Combine predicted and treatment values
 treat_predict_list <- list()
 
 for(i in 1:length(treat_fret)) {
