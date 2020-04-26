@@ -22,7 +22,7 @@ dfret <- function(x, d) {
   for (i in seq_along(y)){
     # Start with assigning a new object for the first time point
     if (i == 1){
-      first <- y[[i]]
+      full <- y[[i]]
     }
     #For each time point, full_join by Field to match all objects between each time point
     else{
