@@ -26,32 +26,73 @@ dfret <- function(x, d) {
     }
     #For each time point, full_join by Field to match all objects between each time point
     else{
-      first <- full_join(first, y[[i]], by = 'Field', suffix = c('', '.y')) %>%
+      filter <- full_join(full, y[[i]], by = c('Field'), suffix = c('', '.y')) %>%
         # Calculate the distance between the two points
-        mutate(dist = sqrt((X.y - X)^2 + (Y.y - Y)^2)) %>%
+        mutate(dist.y = sqrt((X.y - X)^2 + (Y.y - Y)^2)) %>%
         # Filter based off distance parameter, might be better to have multiple, relaxed parameters
         # than one strigent parameter
-        filter(dist < d) %>%
+        filter(dist.y < d) %>%
+        # Group_by cell coordinates of preceding time point
+        group_by(X, Y) %>%
+        # select pairing with closest pairings
+        top_n(-1, dist.y) %>%
+        # Group_by cell coordinates of matched time point
+        group_by(X.y, Y.y) %>%
+        # select pairing with closest pairings, these top_n make sure that each cell is only kept once
+        # in case it matches to two cells within the d parameter
+        top_n(-1, dist.y) %>%
         # Calculate dfret and df_fret
-        mutate(dfret = FRET1.y - FRET1,
-               df_fret = dfret / FRET1) %>%
-        # Drop columns
-        select(-c('X', 'Y', 'WellName.y', 'Timepoint.y')) %>%
-        # Rename the new X, Y coordinates
-        # Always going to be measuring distance between two consecutive time points
-        # For each loop, the X and Y are updated
-        rename('X' = 'X.y',
-               'Y' = 'Y.y') %>%
-        # Rename columns that were added with full_join to have the suffix as the time point
-        rename_at(vars(ends_with('.y')), ~str_replace(., 'y', glue(i))) 
-      # Rename other columns to add the time point suffix
-      # Might be a better way to do this but I couldn't get it to work in the pipe
-      names(first)[names(first) == 'dfret'] <- glue('dfret_', i)
-      names(first)[names(first) == 'df_fret'] <- glue('df_fret_', i)
-      names(first)[names(first) == 'dist'] <- glue('dist_', i)
+        mutate(dfret.y = FRET1.y - FRET1,
+               df.fret.y = dfret.y / FRET1)
+      
+      # Select columns from the matched time point
+      matched <- filter[,str_detect(colnames(filter), ".y")]
+      # Add back the coordinates from the previous time point
+      matched$X <- filter$X
+      matched$Y <- filter$Y
+      
+      # Left join by the coordinates from the previous time point
+      # This will add NAs for cells that have not been matched
+      full <- left_join(full, matched, by = c('X', 'Y'))
+      # rename previous coordinates with the timepoint suffix
+      names(full)[names(full) == 'X'] <- paste('X', i - 1, sep = '_')
+      names(full)[names(full) == 'Y'] <- paste('Y', i - 1, sep = '_')
+      # replace coordinates used for full_join in the next iteration
+      names(full)[names(full) == 'X.y'] <- 'X'
+      names(full)[names(full) == 'Y.y'] <- 'Y'
+      
+      # drop unnecessary columns
+      full$Timepoint.y <- NULL
+      full$WellName.y <- NULL
+      
+      # Replace '.y' suffix of matched columns with the timepoint
+      full <- full %>%
+        rename_at(vars(ends_with('.y')), ~str_replace(., '.y', paste0("_", i))) 
     }
   }
-  return(first)
+  # The last time point matched will not have the timepoint suffix added, this adds it
+  len <- length(y)
+  names(full)[names(full) == 'X'] <- paste('X', len, sep = "_")
+  names(full)[names(full) == 'Y'] <- paste('Y', len, sep = "_")
+  # Add the timepoint suffix to the first time point columns
+  names(full)[names(full) == 'FRET1'] <- paste('FRET1', 1, sep = "_")
+  names(full)[names(full) == 'CFP.Mean'] <- paste('CFP.Mean', 1, sep = "_")
+  names(full)[names(full) == 'YFP.Mean'] <- paste('YFP.Mean', 1, sep = "_")
+  names(full)[names(full) == 'Cell.Roundness'] <- paste('Cell.Roundness', 1, sep = "_")
+  names(full)[names(full) == 'Cell.Area.µm'] <- paste('Cell.Area.µm', 1, sep = "_")
+  
+  # Pivot table to tidy format 
+  full <- full %>%
+    rownames_to_column() %>%
+    pivot_longer(cols = 5:ncol(.)) %>%
+    separate(name, into = c("axis", "timepoint"), sep = "_") %>% 
+    drop_na() %>%
+    pivot_wider(names_from = axis, values_from = value) %>%
+    mutate(df.fret = replace_na(df.fret, 0),
+           dfret = replace_na(dfret, 0))
+  
+  # Return the table
+  return(full)
 }
 
 # List all files in directory
@@ -60,14 +101,11 @@ files <- list.files(path = here(), pattern = "*].txt", full.names = T, recursive
 # Remove non-single cell files
 akar_files <- files[grep("Population", files)]
 
-# Read in files, skip if there is an error
-akar_list <- lapply(akar_files, read.delim)
+# Read in files
+akar <- map(akar_files, read.delim)
 
 # Iterate through all files and apply the dfret function
 # Alter the distance parameter
-akar_fret <- lapply(akar, dfret, d = 50)
-
-# Collapse list into one dataframe for further use
-akar_fret <- plyr::ldply(akar_fret) 
+akar_fret <- map_dfr(akar, dfret, d = 50)
 
 
